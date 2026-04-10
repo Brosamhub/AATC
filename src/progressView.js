@@ -117,7 +117,7 @@ function drawMeters(ctx, rect, pain, loop) {
   const barH = 14;
   const gap = 10;
   const labelGap = 16;
-  let y = rect.y + 4;
+  let y = rect.y + 18;
 
   drawMeter(ctx, rect.x, y, rect.w, barH, 'PAIN', pain, '#ff4a5e');
   y += barH + labelGap + gap;

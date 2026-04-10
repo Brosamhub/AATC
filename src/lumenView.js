@@ -7,12 +7,17 @@ const RING_COUNT = 14;
 
 /**
  * Render the lumen into the given rect {x, y, w, h}.
- * offset is {x, y} in the range [-1..1] on each axis.
+ * offset is {x, y}. Magnitude 0–1 = tunnel view, >1 = wall inspection.
  */
 export function renderLumen(ctx, rect, offset) {
   const cx = rect.x + rect.w / 2;
   const cy = rect.y + rect.h / 2;
   const radius = Math.min(rect.w, rect.h) / 2 - 8;
+
+  // How far the scope tip is deflected (0 = straight, 2 = max wall inspect).
+  const mag = Math.hypot(offset.x, offset.y);
+  // Wall-inspection blend: 0 at mag≤1, ramps to 1 at mag=2.
+  const wallBlend = Math.max(0, Math.min(1, mag - 1));
 
   ctx.save();
 
@@ -22,12 +27,20 @@ export function renderLumen(ctx, rect, offset) {
   ctx.closePath();
   ctx.clip();
 
-  // Outer wall color fills any gap.
-  ctx.fillStyle = '#c9556a';
+  // Outer wall color: brighter during wall inspection.
+  const wallFillR = Math.floor(lerp(201, 230, wallBlend));
+  const wallFillG = Math.floor(lerp(85, 140, wallBlend));
+  const wallFillB = Math.floor(lerp(106, 130, wallBlend));
+  ctx.fillStyle = `rgb(${wallFillR}, ${wallFillG}, ${wallFillB})`;
   ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
 
-  const offX = offset.x * radius * 0.75;
-  const offY = offset.y * radius * 0.75;
+  // VP offset scales with magnitude. At high mag the VP moves further out,
+  // pushing the lumen opening to the edge so mostly wall is visible.
+  const offScale = mag <= 1 ? 0.75 : lerp(0.75, 1.3, wallBlend);
+  const normX = mag > 0 ? offset.x / mag : 0;
+  const normY = mag > 0 ? offset.y / mag : 0;
+  const offX = normX * Math.min(mag, 2) * radius * offScale;
+  const offY = normY * Math.min(mag, 2) * radius * offScale;
   const vpX = cx + offX;
   const vpY = cy + offY;
 
@@ -44,9 +57,17 @@ export function renderLumen(ctx, rect, offset) {
     const rx = cx + (vpX - cx) * curve;
     const ry = cy + (vpY - cy) * curve;
 
-    const red   = Math.floor(lerp(58, 226, t));
-    const green = Math.floor(lerp(24, 118, t));
-    const blue  = Math.floor(lerp(28, 136, t));
+    // Colors: blend from tunnel palette toward brighter wall palette
+    // as the scope tip deflects past magnitude 1.
+    const tunnelR = Math.floor(lerp(58, 226, t));
+    const tunnelG = Math.floor(lerp(24, 118, t));
+    const tunnelB = Math.floor(lerp(28, 136, t));
+    const inspR   = Math.floor(lerp(180, 240, t));
+    const inspG   = Math.floor(lerp(90, 165, t));
+    const inspB   = Math.floor(lerp(100, 155, t));
+    const red   = Math.floor(lerp(tunnelR, inspR, wallBlend));
+    const green = Math.floor(lerp(tunnelG, inspG, wallBlend));
+    const blue  = Math.floor(lerp(tunnelB, inspB, wallBlend));
     ctx.fillStyle = `rgb(${red}, ${green}, ${blue})`;
 
     ctx.beginPath();
@@ -54,7 +75,7 @@ export function renderLumen(ctx, rect, offset) {
     ctx.fill();
 
     if (i > 2 && i % 2 === 0) {
-      ctx.strokeStyle = `rgba(40, 10, 20, 0.25)`;
+      ctx.strokeStyle = `rgba(40, 10, 20, ${lerp(0.25, 0.4, wallBlend)})`;
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }

@@ -1,6 +1,6 @@
 // ...And Around the Corner — main entry point.
 
-import { createGameState, resetGameState, update, handlePress, lateralLocked } from './gameState.js';
+import { createGameState, resetGameState, update, handlePress, lateralLocked, rotationLocked } from './gameState.js';
 import { bindControls } from './controls.js';
 import { renderLumen } from './lumenView.js';
 import { renderProgress } from './progressView.js';
@@ -14,6 +14,8 @@ let lastOverlayPhase = 'playing';
 
 const leftBtn = document.querySelector('[data-ctrl="left"]');
 const rightBtn = document.querySelector('[data-ctrl="right"]');
+const cwBtn = document.querySelector('[data-ctrl="rotateCW"]');
+const ccwBtn = document.querySelector('[data-ctrl="rotateCCW"]');
 
 bindControls((ctrl) => handlePress(gameState, ctrl));
 
@@ -59,6 +61,8 @@ function frame(now) {
   const locked = lateralLocked(gameState);
   leftBtn.classList.toggle('disabled', locked);
   rightBtn.classList.toggle('disabled', locked);
+  cwBtn.classList.toggle('disabled', rotationLocked(gameState, 'cw'));
+  ccwBtn.classList.toggle('disabled', rotationLocked(gameState, 'ccw'));
 
   if (gameState.phase !== 'playing' && lastOverlayPhase === 'playing') {
     showOverlay(gameState.phase);

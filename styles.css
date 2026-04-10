@@ -57,11 +57,16 @@ html, body {
 #dpad [data-ctrl="right"] { grid-column: 3; grid-row: 2; }
 #dpad [data-ctrl="down"]  { grid-column: 2; grid-row: 3; }
 
-#fwdback {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+#actionpad {
+  display: grid;
+  grid-template-columns: repeat(3, 56px);
+  grid-template-rows: repeat(3, 56px);
+  gap: 6px;
 }
+#actionpad [data-ctrl="forward"]   { grid-column: 2; grid-row: 1; }
+#actionpad [data-ctrl="rotateCCW"] { grid-column: 1; grid-row: 2; }
+#actionpad [data-ctrl="rotateCW"]  { grid-column: 3; grid-row: 2; }
+#actionpad [data-ctrl="back"]      { grid-column: 2; grid-row: 3; }
 
 .ctrl-btn {
   background: #3a222c;
@@ -77,11 +82,6 @@ html, body {
   justify-content: center;
   cursor: pointer;
   transition: background 60ms, transform 60ms;
-}
-.ctrl-btn.big {
-  width: 96px;
-  height: 56px;
-  font-size: 18px;
 }
 .ctrl-btn.pressed,
 .ctrl-btn:active {

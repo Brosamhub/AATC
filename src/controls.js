@@ -1,8 +1,10 @@
 // Touch + keyboard input. Edge-triggered: each press fires onPress(ctrl) once.
 
 const KEY_MAP = {
-  ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+  ArrowUp: 'forward', ArrowDown: 'back',
+  ArrowLeft: 'rotateCCW', ArrowRight: 'rotateCW',
   KeyW: 'up', KeyS: 'down', KeyA: 'left', KeyD: 'right',
+  KeyQ: 'rotateCCW', KeyE: 'rotateCW',
   Space: 'forward', KeyF: 'forward',
   ShiftLeft: 'back', ShiftRight: 'back', KeyB: 'back',
 };

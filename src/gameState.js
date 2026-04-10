@@ -21,6 +21,10 @@ const LOOP_DISABLE_THRESHOLD  = 0.75; // left/right become unusable
 // Lumen vanishing-point easing
 const OFFSET_EASE = 6; // higher = snappier transition (per second)
 
+// Tip aim range: magnitude 1 for insertion steering, 2 for wall inspection
+const AIM_MAX_INSERTION = 1;
+const AIM_MAX_WITHDRAWAL = 2;
+
 export function createGameState() {
   return {
     stepIndex: 0,
@@ -34,6 +38,8 @@ export function createGameState() {
     // to (0,-1); the lumen view subtracts it so the visible tunnel tilts
     // opposite to the pressed direction. Cleared on advance or solve.
     tipAim: { x: 0, y: 0 },
+    // Net rotation in 90° increments: +1 per CW, -1 per CCW. Capped at ±4.
+    netRotation: 0,
     lastPressFeedback: null, // {type: 'wrong' | 'solved' | 'advance', t: 0}
   };
 }
@@ -48,12 +54,13 @@ export function resetGameState(state) {
   state.lumenOffset.y = 0;
   state.tipAim.x = 0;
   state.tipAim.y = 0;
+  state.netRotation = 0;
   state.lastPressFeedback = null;
 }
 
 /** Handle a single button press event (edge-triggered). */
 export function handlePress(state, ctrl) {
-  if (state.phase !== 'playing') return;
+  if (state.phase !== 'playing' && state.phase !== 'withdrawal') return;
 
   const step = getStep(state.stepIndex);
 
@@ -63,30 +70,80 @@ export function handlePress(state, ctrl) {
       state.lastPressFeedback = { type: 'wrong', t: 0 };
       return;
     }
-    if (step.bend && step.bend === ctrl) {
-      // Correct direction on a bend: solve and let the lumen ease to center.
-      state.bendSolved = true;
-      state.tipAim.x = 0;
-      state.tipAim.y = 0;
-      state.lastPressFeedback = { type: 'solved', t: 0 };
-    } else {
-      // Wrong direction on a bend, or any direction on a straight segment:
-      // mis-aim the scope tip. Each press adds its unit vector to the
-      // current aim, axis-wise, clamped to [-1, 1]. This produces a 3x3
-      // grid of aim positions: pressing the opposite of an existing axis
-      // cancels just that axis, pressing a perpendicular adds a diagonal,
-      // pressing the same direction stays pinned at the extreme.
-      const v = DIRECTION_VECTORS[ctrl];
-      state.tipAim.x = clamp(state.tipAim.x + v.x, -1, 1);
-      state.tipAim.y = clamp(state.tipAim.y + v.y, -1, 1);
-      if (step.bend) {
-        state.painMeter = clamp01(state.painMeter + PAIN_WRONG_DIR);
-        state.loopMeter = clamp01(state.loopMeter + LOOP_WRONG_DIR);
-        state.lastPressFeedback = { type: 'wrong', t: 0 };
+    // Apply the press: add the direction vector to tipAim.
+    const v = DIRECTION_VECTORS[ctrl];
+    const aimMax = state.phase === 'withdrawal' ? AIM_MAX_WITHDRAWAL : AIM_MAX_INSERTION;
+    const newX = clamp(state.tipAim.x + v.x, -aimMax, aimMax);
+    const newY = clamp(state.tipAim.y + v.y, -aimMax, aimMax);
+    state.tipAim.x = newX;
+    state.tipAim.y = newY;
+
+    if (step.bend && !state.bendSolved) {
+      // Check if this press brought the displayed offset to center,
+      // accounting for any prior rotation. Displayed = bend - tipAim.
+      const bv = DIRECTION_VECTORS[step.bend];
+      const dx = bv.x - newX;
+      const dy = bv.y - newY;
+      if (Math.abs(dx) + Math.abs(dy) < 0.1) {
+        // Solved: lumen is centered.
+        state.bendSolved = true;
+        state.tipAim.x = 0;
+        state.tipAim.y = 0;
+        state.lastPressFeedback = { type: 'solved', t: 0 };
+      } else {
+        // Check if the press moved the lumen closer to center or further away.
+        const oldDx = bv.x - (newX - v.x);
+        const oldDy = bv.y - (newY - v.y);
+        const oldDist = Math.abs(oldDx) + Math.abs(oldDy);
+        const newDist = Math.abs(dx) + Math.abs(dy);
+        if (newDist >= oldDist) {
+          // Moved further away or no improvement — wrong move.
+          state.painMeter = clamp01(state.painMeter + PAIN_WRONG_DIR);
+          state.loopMeter = clamp01(state.loopMeter + LOOP_WRONG_DIR);
+          state.lastPressFeedback = { type: 'wrong', t: 0 };
+        }
       }
     }
     // No snap — the per-frame update() eases lumenOffset toward the new
     // target, so both tilting away and returning to center animate smoothly.
+    return;
+  }
+
+  if (ctrl === 'rotateCW' || ctrl === 'rotateCCW') {
+    // Block if already at 360° in this direction.
+    if (ctrl === 'rotateCW' && state.netRotation >= 4) return;
+    if (ctrl === 'rotateCCW' && state.netRotation <= -4) return;
+
+    // Rotate the *displayed* lumen offset 90°. The displayed offset is
+    // (bend - tipAim), so we compute the current target, rotate it, then
+    // back-solve for the new tipAim that produces that rotated target.
+    let bx = 0, by = 0;
+    if (step.bend && !state.bendSolved) {
+      const v = DIRECTION_VECTORS[step.bend];
+      bx = v.x;
+      by = v.y;
+    }
+    const tx = bx - state.tipAim.x;
+    const ty = by - state.tipAim.y;
+    let rx, ry;
+    if (ctrl === 'rotateCW') {
+      rx = ty; ry = -tx;   // CW scope → CCW image: (x,y)→(y,-x)
+    } else {
+      rx = -ty; ry = tx;   // CCW scope → CW image: (x,y)→(-y,x)
+    }
+    // new tipAim = bend - rotated target. No clamping here — rotation is
+    // just re-expressing the same offset at a new angle, and the values
+    // may need to exceed the normal aimMax to represent that correctly.
+    state.tipAim.x = bx - rx;
+    state.tipAim.y = by - ry;
+    // Check if rotation brought the display to center.
+    if (step.bend && !state.bendSolved && Math.abs(rx) + Math.abs(ry) < 0.1) {
+      state.bendSolved = true;
+      state.tipAim.x = 0;
+      state.tipAim.y = 0;
+      state.lastPressFeedback = { type: 'solved', t: 0 };
+    }
+    state.netRotation += (ctrl === 'rotateCW') ? 1 : -1;
     return;
   }
 
@@ -143,6 +200,13 @@ export function lateralLocked(state) {
   return state.loopMeter >= LOOP_DISABLE_THRESHOLD;
 }
 
+/** True when the given rotation direction is locked (360° reached). */
+export function rotationLocked(state, dir) {
+  if (dir === 'cw') return state.netRotation >= 4;
+  if (dir === 'ccw') return state.netRotation <= -4;
+  return false;
+}
+
 /** Per-frame update: animations, pain drain, lose check. */
 export function update(state, dt) {
   // Pain drains slowly
@@ -178,12 +242,13 @@ function getLumenTarget(state) {
   // (which was straight ahead) appears below the player's aim point.
   let dx = bx - state.tipAim.x;
   let dy = by - state.tipAim.y;
-  // Diagonals can have magnitude > 1; normalize so the vanishing point
-  // stays inside the eyepiece for all 8 outer aim positions.
+  // Cap magnitude at 2 (full wall inspection range). For diagonal
+  // positions, normalize to keep the vanishing point on a circle.
+  const maxMag = state.phase === 'withdrawal' ? 2 : 1;
   const mag = Math.hypot(dx, dy);
-  if (mag > 1) {
-    dx /= mag;
-    dy /= mag;
+  if (mag > maxMag) {
+    dx = dx / mag * maxMag;
+    dy = dy / mag * maxMag;
   }
   return { x: dx, y: dy };
 }
